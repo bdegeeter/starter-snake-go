@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+  "time"
 	"math/rand"
 	"net/http"
 	"os"
@@ -62,8 +63,8 @@ type MoveResponse struct {
 func HandleIndex(w http.ResponseWriter, r *http.Request) {
 	response := BattlesnakeInfoResponse{
 		APIVersion: "1",
-		Author:     "",        // TODO: Your Battlesnake username
-		Color:      "#888888", // TODO: Personalize
+		Author:     "bd",        // TODO: Your Battlesnake username
+		Color:      "#888800", // TODO: Personalize
 		Head:       "default", // TODO: Personalize
 		Tail:       "default", // TODO: Personalize
 	}
@@ -98,11 +99,15 @@ func HandleMove(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+  /*
+  request.chooseMove()
+  
 	// Choose a random direction to move in
 	possibleMoves := []string{"up", "down", "left", "right"}
 	move := possibleMoves[rand.Intn(len(possibleMoves))]
-
+  */
+  move := request.chooseMove()
+  fmt.Printf("I chose: %s\n", move)
 	response := MoveResponse{
 		Move: move,
 	}
@@ -113,6 +118,55 @@ func HandleMove(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+func (gr GameRequest) offBoard(coord Coord) bool {
+  if coord.X < 0 { return true }
+  if coord.Y < 0 { return true }
+  if coord.X >= gr.Board.Width { return true }
+  if coord.Y >= gr.Board.Height { return true }
+  return false
+}
+
+func coordEquals(a, b Coord) bool {
+  if a.X == b.X && a.Y == b.Y {
+    return true
+  }
+  return false
+}
+
+func (gr GameRequest) chooseMove() string {
+  possibleMoves := []string{"up", "down", "left", "right"}
+  r := rand.New(rand.NewSource(time.Now().Unix()))
+
+  for _, i := range r.Perm(len(possibleMoves)) {
+    mv := possibleMoves[i]
+    coord := gr.coordAsMove(mv)
+    fmt.Printf("%v\n", coord)
+    if !gr.offBoard(coord) && !coordEquals(coord, gr.You.Body[1]) {
+      return mv
+    }
+  }
+  return ""
+}
+
+
+func (gr GameRequest) coordAsMove(move string) Coord {
+  fmt.Printf("head X:%d Y:%d\n", gr.You.Head.X, gr.You.Head.Y)
+  switch move {
+    case "up":
+      fmt.Printf("up move X:%d Y:%d\n", gr.You.Head.X,gr.You.Head.Y+1)
+      return Coord{gr.You.Head.X, gr.You.Head.Y+1}
+    case "down":
+      fmt.Printf("down move X:%d Y:%d\n", gr.You.Head.X, gr.You.Head.Y-1)
+      return Coord{gr.You.Head.X, gr.You.Head.Y-1}
+    case "left":
+      fmt.Printf("left move X:%d Y:%d\n", gr.You.Head.X-1, gr.You.Head.Y)
+      return Coord{gr.You.Head.X-1, gr.You.Head.Y}
+    case "right":
+      fmt.Printf("right move X:%d Y:%d\n", gr.You.Head.X+1, gr.You.Head.Y)
+      return Coord{gr.You.Head.X+1, gr.You.Head.Y}
+  }
+  return Coord{}
 }
 
 // HandleEnd is called when a game your Battlesnake was playing has ended.
@@ -125,7 +179,7 @@ func HandleEnd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Nothing to respond with here
-	fmt.Print("END\n")
+	fmt.Print("gg\nEND\n")
 }
 
 func main() {
