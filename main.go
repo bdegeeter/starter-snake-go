@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-  "time"
 	"math/rand"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 type Game struct {
@@ -63,16 +65,16 @@ type MoveResponse struct {
 func HandleIndex(w http.ResponseWriter, r *http.Request) {
 	response := BattlesnakeInfoResponse{
 		APIVersion: "1",
-		Author:     "bd",        // TODO: Your Battlesnake username
-		Color:      "#888800", // TODO: Personalize
-		Head:       "default", // TODO: Personalize
-		Tail:       "default", // TODO: Personalize
+		Author:     "bd",
+		Color:      "#888800",
+		Head:       "sand-worm",
+		Tail:       "round-bum",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(response)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 }
 
@@ -83,11 +85,11 @@ func HandleStart(w http.ResponseWriter, r *http.Request) {
 	request := GameRequest{}
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 
 	// Nothing to respond with here
-	fmt.Print("START\n")
+	log.Info().Str("name", request.You.Name).Str("id", request.You.ID).Msg("game start")
 }
 
 // HandleMove is called for each turn of each game.
@@ -97,76 +99,93 @@ func HandleMove(w http.ResponseWriter, r *http.Request) {
 	request := GameRequest{}
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
-  /*
-  request.chooseMove()
-  
-	// Choose a random direction to move in
-	possibleMoves := []string{"up", "down", "left", "right"}
-	move := possibleMoves[rand.Intn(len(possibleMoves))]
-  */
-  move := request.chooseMove()
-  fmt.Printf("I chose: %s\n", move)
+	move := request.chooseMove()
+	log.Debug().Str("name", request.You.Name).Str("id", request.You.ID).Str("move", move).Msg("move chosen")
 	response := MoveResponse{
 		Move: move,
 	}
 
-	fmt.Printf("MOVE: %s\n", response.Move)
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 }
 func (gr GameRequest) offBoard(coord Coord) bool {
-  if coord.X < 0 { return true }
-  if coord.Y < 0 { return true }
-  if coord.X >= gr.Board.Width { return true }
-  if coord.Y >= gr.Board.Height { return true }
-  return false
+	log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).Msg("off board - start")
+	defer log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).Msg("off board - end")
+	if coord.X < 0 {
+		return true
+	}
+	if coord.Y < 0 {
+		return true
+	}
+	if coord.X >= gr.Board.Width {
+		return true
+	}
+	if coord.Y >= gr.Board.Height {
+		return true
+	}
+	return false
+}
+
+func (gr GameRequest) collideSnake(futureCoord Coord) bool {
+	log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).Msg("snake collision - start")
+	defer log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).Msg("snake collision - end")
+	for _, snake := range gr.Board.Snakes {
+		log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).
+			Str("other_name", snake.Name).Str("other_id", snake.ID).Msg("snake collision - check")
+		for _, sb := range snake.Body {
+			if coordEquals(futureCoord, sb) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func coordEquals(a, b Coord) bool {
-  if a.X == b.X && a.Y == b.Y {
-    return true
-  }
-  return false
+	if a.X == b.X && a.Y == b.Y {
+		return true
+	}
+	return false
 }
 
 func (gr GameRequest) chooseMove() string {
-  possibleMoves := []string{"up", "down", "left", "right"}
-  r := rand.New(rand.NewSource(time.Now().Unix()))
+	defaultMove := "left"
+	possibleMoves := []string{"up", "down", "left", "right"}
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).Msg("choose move - start")
+	for _, i := range r.Perm(len(possibleMoves)) {
+		mv := possibleMoves[i]
+		futureCoord := gr.coordAsMove(mv)
+		log.Debug().Str("move", mv).Interface("coord", futureCoord).Msg("check future move")
+		if !gr.offBoard(futureCoord) && !gr.collideSnake(futureCoord) {
+			return mv
+		}
+	}
+	log.Warn().Str("move", defaultMove).Msg("no options. using default move")
+	log.Debug().Str("name", gr.You.Name).Str("id", gr.You.ID).Msg("choose move - end")
+	return defaultMove
 
-  for _, i := range r.Perm(len(possibleMoves)) {
-    mv := possibleMoves[i]
-    coord := gr.coordAsMove(mv)
-    fmt.Printf("%v\n", coord)
-    if !gr.offBoard(coord) && !coordEquals(coord, gr.You.Body[1]) {
-      return mv
-    }
-  }
-  return ""
 }
 
-
+//coordAsMove input move (up,down,left, right) get back
+//coordinate of your snake head for the move
 func (gr GameRequest) coordAsMove(move string) Coord {
-  fmt.Printf("head X:%d Y:%d\n", gr.You.Head.X, gr.You.Head.Y)
-  switch move {
-    case "up":
-      fmt.Printf("up move X:%d Y:%d\n", gr.You.Head.X,gr.You.Head.Y+1)
-      return Coord{gr.You.Head.X, gr.You.Head.Y+1}
-    case "down":
-      fmt.Printf("down move X:%d Y:%d\n", gr.You.Head.X, gr.You.Head.Y-1)
-      return Coord{gr.You.Head.X, gr.You.Head.Y-1}
-    case "left":
-      fmt.Printf("left move X:%d Y:%d\n", gr.You.Head.X-1, gr.You.Head.Y)
-      return Coord{gr.You.Head.X-1, gr.You.Head.Y}
-    case "right":
-      fmt.Printf("right move X:%d Y:%d\n", gr.You.Head.X+1, gr.You.Head.Y)
-      return Coord{gr.You.Head.X+1, gr.You.Head.Y}
-  }
-  return Coord{}
+	switch move {
+	case "up":
+		return Coord{gr.You.Head.X, gr.You.Head.Y + 1}
+	case "down":
+		return Coord{gr.You.Head.X, gr.You.Head.Y - 1}
+	case "left":
+		return Coord{gr.You.Head.X - 1, gr.You.Head.Y}
+	case "right":
+		return Coord{gr.You.Head.X + 1, gr.You.Head.Y}
+	}
+	return Coord{}
 }
 
 // HandleEnd is called when a game your Battlesnake was playing has ended.
@@ -175,14 +194,16 @@ func HandleEnd(w http.ResponseWriter, r *http.Request) {
 	request := GameRequest{}
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err)
 	}
 
 	// Nothing to respond with here
-	fmt.Print("gg\nEND\n")
+	log.Info().Str("name", request.You.Name).Str("id", request.You.ID).Msg("gg - game end")
 }
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	port := os.Getenv("PORT")
 	if len(port) == 0 {
 		port = "8080"
@@ -192,7 +213,6 @@ func main() {
 	http.HandleFunc("/start", HandleStart)
 	http.HandleFunc("/move", HandleMove)
 	http.HandleFunc("/end", HandleEnd)
-
-	fmt.Printf("Starting Battlesnake Server at http://0.0.0.0:%s...\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Info().Str("url", fmt.Sprintf("http://0.0.0.0:%s", port)).Msg("starting battlesnake server")
+	log.Fatal().Err(http.ListenAndServe(":"+port, nil))
 }
